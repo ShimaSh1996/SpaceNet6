@@ -1,0 +1,30 @@
+ENGINE:
+  NAME: LightningNet
+  OPTIMIZER:
+    NAME: torch.optim.AdamW
+    ARGS:
+      weight_decay: 0.01
+  SCHEDULER:
+    NAME: torch.optim.lr_scheduler.OneCycleLR
+    ARGS:
+      max_lr: 0.005
+      total_steps: 60000
+      
+MODEL:
+  META_ARCHITECTURE: CARNet
+
+DATA:
+  DATASET:
+    IMAGE_DIR: data/train/AOI_11_Rotterdam/PS-RGB
+    SAR_DIR: data/train/AOI_11_Rotterdam/SAR-Intensity
+    CSV_DIR: data/train/AOI_11_Rotterdam/SummaryData
+    IMAGE_SHAPE: [224, 224]
+    IS_TRAIN: True
+    VALIDATION_RATIO: 0.1
+  DATA_LOADER:
+    BATCH_SIZE: 32
+    NAME: SpaceNetDatalaoder
+    NUM_WORKERS: 8
+    PIN_MEMORY: True
+
+OUTPUT_DIR: outputs
