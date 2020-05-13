@@ -3,8 +3,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 from collections import OrderedDict
-from core.metrics import CARNetLoss, MetricLogger
-from core.utils import get_callable_name
+from core.metrics import MetricLogger
 
 
 class LightningNet(pl.LightningModule):
@@ -48,7 +47,7 @@ class LightningNet(pl.LightningModule):
 
     def validation_end(self, outputs):
         avg_log = {
-            k: self.metric_logger[k].global_avg for k in outputs[0]["log"]
+            k: self.metric_logger[k].global_avg for k in outputs[0]["progress_bar"]
         }
         self._reset_logger()
         return {"log": avg_log}
@@ -57,42 +56,49 @@ class LightningNet(pl.LightningModule):
         opt = torch.optim.AdamW(
             self.model.parameters(), **self.cfg.OPTIMIZER.ARGS
         )
-        sched = {
-            "scheduler": torch.optim.lr_scheduler.OneCycleLR(
-                opt, **self.cfg.SCHEDULER.ARGS
-            ),
-            "interval": "step",
-            "frequency": 1,
+        # sched = {
+        #     "scheduler": torch.optim.lr_scheduler.OneCycleLR(
+        #         opt, **self.cfg.SCHEDULER.ARGS
+        #     ),
+        #     "interval": "step",
+        #     "frequency": 1,
+        # }
+        return [opt]#, [sched]
+
+    def _shared_eval(self, outputs, targets, mode):
+        loss_dict = self.criterion(outputs, targets, mode=mode)
+
+        loss, loss_logs = self._eval_loss(loss_dict, mode)
+        metrics_logs = self._eval_metrics(outputs, targets, mode)
+
+        all_logs = {**loss_logs, **metrics_logs}
+        progress_logs = {k: self.metric_logger[k].avg for k in all_logs}
+
+        all_logs = self._change_log_tags(all_logs)
+        results = {
+            "loss": loss,
+            "log": all_logs,
+            "progress_bar": progress_logs,
         }
-        return [opt], [sched]
-
-    def _shared_eval(self, outputs, targets, prefix):
-        loss_dict = self.criterion(outputs, targets)
-
-        loss, loss_logs = self._eval_loss(loss_dict, prefix)
-        metrics_logs = self._eval_metrics(outputs, targets, prefix)
-
-        logs = {**loss_logs, **metrics_logs}
-        progress_logs = {k: self.metric_logger[k].avg for k in logs}
-        results = {"loss": loss, "log": logs, "progress_bar": progress_logs}
         return results
 
-    def _eval_loss(self, loss_dict, prefix):
+    def _eval_loss(self, loss_dict, mode):
         loss = sum(
             l * w for l, w in zip(loss_dict.values(), self.loss_weights)
         )
         loss_logs = {
-            f"{k}/{prefix}": v.item()
+            f"{mode}_{k}": v.item()
             for k, v in {"total_loss": loss, **loss_dict}.items()
         }
         self.metric_logger.update(**loss_logs)
         return loss, loss_logs
 
-    def _eval_metrics(self, outputs, targets, prefix):
+    def _eval_metrics(self, outputs, targets, mode):
         results = {}
         for output, target, metrics in zip(outputs, targets, self.metrics):
-            for name, metric in metrics.items():
-                results[f"{name}/{prefix}"] = metric(output, target)
+            for metric in metrics:
+                metric_results = {f"{mode}_{k}":v for k,v in metric(output, target).items()}
+                results.update(metric_results)
 
         self.metric_logger.update(**results)
         return results
@@ -109,26 +115,23 @@ class LightningNet(pl.LightningModule):
             tag = tag.replace(".", "/")
             self.logger.experiment.add_histogram(tag, value, step)
 
-            # if value.grad is not None:
-            #     print(value.grad.cpu().numpy())
-            #     self.logger.experiment.add_histogram(
-            #         f"{tag}/grad", value.grad, step
-            #     )
-
-        bs = outputs[0].shape[0]
-        predictions = [F.softmax(t, dim=1).view(bs, -1) for t in outputs]
-        for prediction, labels in zip(
-            predictions,
-            [
-                ["background", "logo"],
-                ["single", "collaged"],
-                ["normal", "right", "upside-down", "left"],
-            ],
-        ):
-            for idx, name in enumerate(labels):
+        for oid, pred in enumerate(outputs):
+            bs, classes = outputs[0].shape[:2]
+            pred = F.softmax(pred, dim=1).view(bs, classes, -1)
+            for cid in range(classes):
                 self.logger.experiment.add_histogram(
-                    f"prediction_confidence/{name}", prediction[:, idx], step
+                    f"pred_confidence/output_{oid}/class_{cid}",
+                    pred[:, cid],
+                    step,
                 )
+
+    def _change_log_tags(self, logs):
+        def tag_from_key(key):
+            mode, name = key.split("_", 1)
+            return f"{name}/{mode}"
+
+        logs = {tag_from_key(k): v for k, v in logs.items()}
+        return logs
 
     def train_dataloader(self):
         return self.dataloaders["train"]
@@ -136,5 +139,5 @@ class LightningNet(pl.LightningModule):
     def val_dataloader(self):
         return self.dataloaders["val"]
 
-    def test_dataloader(self):
-        return self.dataloaders["test"]
+    # def test_dataloader(self):
+    #     return self.dataloaders["test"]

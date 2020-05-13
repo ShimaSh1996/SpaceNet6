@@ -20,10 +20,10 @@ class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         for t in self.transforms:
-            image, segmap, labels = t(image, segmap, labels)
-        return image, segmap, labels
+            image, segmaps = t(image, segmaps)
+        return image, segmaps
 
 
 class Lambda(object):
@@ -33,26 +33,27 @@ class Lambda(object):
         assert isinstance(lambd, types.LambdaType)
         self.lambd = lambd
 
-    def __call__(self, image, segmap=None, labels=None):
-        return self.lambd(image, segmap, labels)
+    def __call__(self, image, segmaps):
+        return self.lambd(image, segmaps)
 
 
 class ConvertToFloat(object):
-    def __call__(self, image, segmap=None, labels=None):
-        return image.astype(np.float32), segmap, labels
+    def __call__(self, image, segmaps=None):
+        return image.astype(np.float32), segmaps
 
 
-class NormalizeMeanStd(object):
-    def __init__(self, mean, std):
-        self.mean = np.array(mean, dtype=np.float32)
+class Normalize(object):
+    def __init__(self, mean=None, std=None):
+        self.mean = mean
         self.std = std
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         image = image.astype(np.float32)
         image /= 255
-        image -= self.mean
-        image /= self.std
-        return image.astype(np.float32), segmap, labels
+        if self.mean is not None:
+            image -= self.mean
+            image /= self.std
+        return image.astype(np.float32), segmaps
 
 
 class Resize(object):
@@ -60,17 +61,20 @@ class Resize(object):
         self.input_shape = input_shape
         self.output_shape = output_shape
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         image = resize(image, self.input_shape, preserve_range=True)
         if self.output_shape:
-            segmap = resize(
-                segmap,
-                self.output_shape,
-                preserve_range=True,
-                order=0,
-                anti_aliasing=False,
-            )
-        return image, segmap, labels
+            segmaps = [
+                resize(
+                    segmap,
+                    self.output_shape,
+                    preserve_range=True,
+                    order=0,
+                    anti_aliasing=False,
+                )
+                for segmap in segmaps
+            ]
+        return image, segmaps
 
 
 class RandomSaturation(object):
@@ -80,11 +84,11 @@ class RandomSaturation(object):
         assert self.upper >= self.lower, "contrast upper must be >= lower."
         assert self.lower >= 0, "contrast lower must be non-negative."
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if random.random() < 0.5:
             image[:, :, 1] *= random.uniform(self.lower, self.upper)
 
-        return image, segmap, labels
+        return image, segmaps
 
 
 class RandomHue(object):
@@ -92,24 +96,31 @@ class RandomHue(object):
         assert delta >= 0.0 and delta <= 360.0
         self.delta = delta
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if random.random() < 0.5:
             image[:, :, 0] += random.uniform(-self.delta, self.delta)
             image[:, :, 0][image[:, :, 0] > 360.0] -= 360.0
             image[:, :, 0][image[:, :, 0] < 0.0] += 360.0
-        return image, segmap, labels
+        return image, segmaps
 
 
 class RandomLightingNoise(object):
     def __init__(self):
-        self.perms = ((0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0))
+        self.perms = (
+            (0, 1, 2),
+            (0, 2, 1),
+            (1, 0, 2),
+            (1, 2, 0),
+            (2, 0, 1),
+            (2, 1, 0),
+        )
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if random.random() < 0.5:
             swap = self.perms[random.randint(0, len(self.perms) - 1)]
             shuffle = SwapChannels(swap)  # shuffle channels
             image = shuffle(image)
-        return image, segmap, labels
+        return image, segmaps
 
 
 class ConvertColor(object):
@@ -117,7 +128,7 @@ class ConvertColor(object):
         self.transform = transform
         self.current = current
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if self.current == "BGR" and self.transform == "HSV":
             image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         elif self.current == "RGB" and self.transform == "HSV":
@@ -130,7 +141,7 @@ class ConvertColor(object):
             image = cv2.cvtColor(image, cv2.COLOR_HSV2RGB)
         else:
             raise NotImplementedError
-        return image, segmap, labels
+        return image, segmaps
 
 
 class RandomContrast(object):
@@ -141,11 +152,11 @@ class RandomContrast(object):
         assert self.lower >= 0, "contrast lower must be non-negative."
 
     # expects float image
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if random.random() < 0.5:
             alpha = random.uniform(self.lower, self.upper)
             image *= alpha
-        return image, segmap, labels
+        return image, segmaps
 
 
 class RandomBrightness(object):
@@ -154,37 +165,28 @@ class RandomBrightness(object):
         assert delta <= 255.0
         self.delta = delta
 
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         if random.random() < 0.5:
             delta = random.uniform(-self.delta, self.delta)
             image += delta
-        return image, segmap, labels
-
-
-class ToNumpyImage(object):
-    def __call__(self, tensor, segmap=None, labels=None):
-        return (
-            tensor.cpu().numpy().astype(np.float32).transpose((1, 2, 0)),
-            segmap,
-            labels,
-        )
+        return image, segmaps
 
 
 class ToTensor(object):
-    def __call__(self, image, segmap=None, labels=None):
+    def __call__(self, image, segmaps=None):
         return (
-            torch.from_numpy(np.transpose(image, (2, 0, 1)).astype(np.float32)),
-            segmap.astype(int),
-            labels
+            np.transpose(image, (2, 0, 1)).astype(np.float32),
+            [segmap.astype(int) for segmap in segmaps],
         )
 
 
 class RandomMirror(object):
-    def __call__(self, image, segmap, labels=None):
+    def __call__(self, image, segmaps):
         if random.random() < 0.5:
             image = image[..., ::-1, :]
-            segmap = segmap[..., ::-1, :]
-        return image, segmap, labels
+            for idx, segmap in enumerate(segmaps):
+                segmaps[idx] = segmap[..., ::-1, :]
+        return image, segmaps
 
 
 class SwapChannels(object):
@@ -205,10 +207,6 @@ class SwapChannels(object):
         Return:
             a tensor with channels swapped according to swap
         """
-        # if torch.is_tensor(image):
-        #     image = image.data.cpu().numpy()
-        # else:
-        #     image = np.array(image)
         image = image[:, :, self.swaps]
         return image
 
@@ -226,12 +224,12 @@ class PhotometricDistort(object):
         self.rand_brightness = RandomBrightness()
         self.rand_light_noise = RandomLightingNoise()
 
-    def __call__(self, image, segmap, labels):
+    def __call__(self, image, segmaps):
         im = image.copy()
-        im, segmap, labels = self.rand_brightness(im, segmap, labels)
+        im, segmaps = self.rand_brightness(im, segmaps)
         if random.random() < 0.5:
             distort = Compose(self.pd[:-1])
         else:
             distort = Compose(self.pd[1:])
-        im, segmap, labels = distort(im, segmap, labels)
-        return self.rand_light_noise(im, segmap, labels)
+        im, segmaps = distort(im, segmaps)
+        return self.rand_light_noise(im, segmaps)

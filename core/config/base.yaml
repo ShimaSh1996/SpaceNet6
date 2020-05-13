@@ -11,13 +11,15 @@ ENGINE:
       total_steps: 60000
       
 MODEL:
-  META_ARCHITECTURE: CARNet
+  META_ARCHITECTURE: GSCNN
+  ARGS:
+    num_classes: 2
 
 DATA:
   DATASET:
     IMAGE_DIR: data/train/AOI_11_Rotterdam/PS-RGB
     SAR_DIR: data/train/AOI_11_Rotterdam/SAR-Intensity
-    CSV_DIR: data/train/AOI_11_Rotterdam/SummaryData
+    CSV_FILE: data/train/AOI_11_Rotterdam/SummaryData/SN6_Train_AOI_11_Rotterdam_Buildings.csv
     IMAGE_SHAPE: [224, 224]
     IS_TRAIN: True
     VALIDATION_RATIO: 0.1
@@ -25,6 +27,6 @@ DATA:
     BATCH_SIZE: 32
     NAME: SpaceNetDatalaoder
     NUM_WORKERS: 8
-    PIN_MEMORY: True
+    PIN_MEMORY: TRUE
 
 OUTPUT_DIR: outputs

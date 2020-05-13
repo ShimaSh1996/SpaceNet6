@@ -177,7 +177,6 @@ def evaluate_eval(args, net, optimizer, val_loss, mf_score, hist, dump_images, h
             assert os.path.exists(best_snapshot), \
                 'cant find old snapshot {}'.format(best_snapshot)
             os.remove(best_snapshot)
-
         
         # save new best
         args.best_record['val_loss'] = val_loss.avg

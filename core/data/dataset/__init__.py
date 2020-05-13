@@ -1,1 +1,0 @@
-from .sn6 import SpaceNetDataset
