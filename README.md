@@ -1,1 +1,1 @@
-# EARTHVISION
+# EARTHVISION - CVPR Workshop
