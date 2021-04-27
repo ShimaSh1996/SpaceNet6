@@ -1,1 +1,2 @@
-# EARTHVISION - CVPR Workshop
+# EARTHVISION - CVPR 2020 Workshop
+
